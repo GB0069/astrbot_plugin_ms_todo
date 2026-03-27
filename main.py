@@ -6,6 +6,7 @@ from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.core import AstrBotConfig
+from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -15,6 +16,7 @@ class Main(Star):
         super().__init__(context)
         self.config = config
         self.access_token = None
+        self.cache_path = get_astrbot_data_path() / "plugin_data" / self.name
 
     @filter.command("todo-auth")
     async def auth(self, event: AstrMessageEvent):
@@ -23,7 +25,8 @@ class Main(Star):
         scopes = ["Tasks.ReadWrite"]
 
         authority = f"https://login.microsoftonline.com/{tenant_id}"
-        cache = msal.SerializableTokenCache()
+
+        cache = self._load_cache()
 
         app = msal.PublicClientApplication(client_id=client_id, authority=authority, token_cache=cache)
 
@@ -45,6 +48,7 @@ class Main(Star):
         if result and "access_token" in result:
             yield event.plain_result("Successfully get access token")
             self.access_token = result["access_token"]
+            self._save_cache(cache)
             return
 
         if result:
@@ -53,17 +57,17 @@ class Main(Star):
             )
             return
 
-    @filter.command("todo-lists")
+    @filter.command("todo-ls")
     async def list_lists(self, event: AstrMessageEvent):
         try:
-            response = await Main.graph_request(method="GET", path="/me/todo/lists", timeout=10, token=self.access_token)
+            response = await Main.graph_request(method="GET", path="/me/todo/lists", timeout=10)
             if not response:
                 yield event.plain_result("No lists found")
                 return
 
             for item in response["value"]:
                 yield event.plain_result(f"{item['displayName']}")
-        except SystemExit as exc:
+        except RuntimeError as exc:
             yield event.plain_result(str(exc))
             logger.error(exc)
             return
@@ -71,6 +75,33 @@ class Main(Star):
     @filter.command("list-tasks")
     async def list_tasks(self, event: AstrMessageEvent):
         yield event.plain_result("Not implemented")
+
+    def _load_cache(self) -> msal.SerializableTokenCache:
+        """Loads the MSAL token cache from the cache file.
+
+        Returns:
+            An MSAL SerializableTokenCache object.
+
+        Raises:
+            SystemExit: If the cache file is invalid.
+        """
+        cache = msal.SerializableTokenCache()
+        if self.cache_path.exists():
+            try:
+                cache.deserialize(self.cache_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise SystemExit(f"Invalid cache file: {self.cache_path} ({exc})") from exc
+        return cache
+
+    def _save_cache(self, cache: msal.SerializableTokenCache) -> None:
+        """Saves the MSAL token cache to the cache file if it has changed.
+
+        Args:
+            cache: The MSAL SerializableTokenCache object to save.
+        """
+        if cache.has_state_changed:
+            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self.cache_path.write_text(cache.serialize(), encoding="utf-8")
 
     @staticmethod
     async def request_once(
@@ -96,22 +127,23 @@ class Main(Star):
                             parsed = text
                     return resp.status, parsed, text
         except asyncio.TimeoutError as exc:
-            raise SystemExit(f"Network timeout when calling Graph API: {exc}") from exc
+            raise RuntimeError(f"Network timeout when calling Graph API: {exc}") from exc
         except aiohttp.ClientError as exc:
-            raise SystemExit(f"Network error when calling Graph API: {exc}") from exc
+            raise RuntimeError(f"Network error when calling Graph API: {exc}") from exc
 
-    @staticmethod
     async def graph_request(
+            self,
             method: str,
             path: str,
             timeout: int,
             payload: dict | None = None,
-            retry_on_401: bool = True,
-            token: str = None,
+            retry_on_401: bool = True
     ) -> dict | None:
 
+        token = self.access_token
+
         if not token:
-            raise SystemExit("Access token required")
+            raise RuntimeError("Access token required")
 
         url = f"{GRAPH_BASE}{path}"
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -120,13 +152,13 @@ class Main(Star):
 
         if status == 401 and retry_on_401:
             if not token:
-                raise SystemExit("Access token required")
+                raise RuntimeError("Access token required")
 
             headers["Authorization"] = f"Bearer {token}"
             status, parsed, text = await Main.request_once(method, url, headers, payload, timeout)
 
         if status >= 400:
-            raise SystemExit(f"Graph API error {status}: {parsed if parsed is not None else text}")
+            raise RuntimeError(f"Graph API error {status}: {parsed if parsed is not None else text}")
 
         if status == 204 or not text.strip():
             return None
@@ -134,6 +166,6 @@ class Main(Star):
         if isinstance(parsed, dict):
             return parsed
 
-        raise SystemExit(f"Unexpected non-JSON Graph response: {text}")
+        raise RuntimeError(f"Unexpected non-JSON Graph response: {text}")
 
 
