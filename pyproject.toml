@@ -1,0 +1,10 @@
+[project]
+name = "astrbot-plugin-ms-todo"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "astrbot>=4.20.0",
+    "msal==1.35.1",
+]

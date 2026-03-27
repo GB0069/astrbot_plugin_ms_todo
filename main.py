@@ -1,24 +1,50 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
+from astrbot.core import AstrBotConfig
+
+import msal
+
 
 @register("helloworld", "YourName", "一个简单的 Hello World 插件", "1.0.0")
 class MyPlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
+        self.config = config
 
-    async def initialize(self):
-        """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
+    @filter.command("auth")
+    async def auth(self, event: AstrMessageEvent):
+        client_id = self.config.get("MS_CLIENT_ID")
+        tenant_id = "consumers"
+        scopes = ["Tasks.ReadWrite"]
 
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
+        authority = f"https://login.microsoftonline.com/{tenant_id}"
+        cache = msal.SerializableTokenCache()
+
+        app = msal.PublicClientApplication(client_id=client_id, authority=authority, token_cache=cache)
+
+        result = None
+        accounts = app.get_accounts()
+
+        if accounts:
+            result = app.acquire_token_silent(scopes, account=accounts[0])
+
+        if not result or "access_token" not in result:
+            flow = app.initiate_device_flow(scopes=scopes)
+            if "user_code" not in flow:
+                yield event.plain_result("Failed to create device flow")
+                return
+
+            yield event.plain_result(flow["message"])
+            result = app.acquire_token_by_device_flow(flow)
+
+        if result and "access_token" in result:
+            yield event.plain_result("")
+            logger.info("Access token: " + result["access_token"])
+
+        if result:
+            yield event.plain_result(f"Token request failed: {result.get('error')} | {result.get('error_description')}")
+            logger.error(f"Token request failed: {result.get('error')} | {result.get('error_description')}")
 
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""

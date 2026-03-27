@@ -1,0 +1,5 @@
+{
+  "name": "MS_CLIENT_ID",
+  "type": "string",
+  "description": "Azure AD Application ID"
+}
