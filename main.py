@@ -55,13 +55,18 @@ class Main(Star):
 
     @filter.command("todo-lists")
     async def list_lists(self, event: AstrMessageEvent):
-        response = await Main.graph_request(method="GET", path="/me/todo/lists", timeout=10, token=self.access_token)
-        if not response:
-            yield event.plain_result("No lists found")
+        try:
+            response = await Main.graph_request(method="GET", path="/me/todo/lists", timeout=10, token=self.access_token)
+            if not response:
+                yield event.plain_result("No lists found")
+                return
+
+            for item in response["value"]:
+                yield event.plain_result(f"{item['displayName']}")
+        except SystemExit as exc:
+            yield event.plain_result(str(exc))
+            logger.error(exc)
             return
-        
-        for item in response["value"]:
-            yield event.plain_result(f"{item['displayName']}")
 
     @filter.command("list-tasks")
     async def list_tasks(self, event: AstrMessageEvent):
