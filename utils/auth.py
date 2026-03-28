@@ -2,15 +2,12 @@
 import json
 import os
 import time
-from pathlib import Path
 
 import msal
+from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from dotenv import load_dotenv
 
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
-
 DEFAULT_SCOPE = "https://graph.microsoft.com/.default"
-DEFAULT_STORAGE_DIR = Path("~/.ms-todo-auth").expanduser()
 
 # Use constants for storage paths
 STORAGE_DIR = get_astrbot_data_path() / "plugin_data" / "ms_todo"

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import aiohttp
 import msal
@@ -15,8 +16,10 @@ class Main(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
+        self.cache_path = Path(f"{get_astrbot_data_path()} / plugin_data / {self.name}")
+
+        self.access_token_cache = self._load_cache()
         self.access_token = None
-        self.cache_path = get_astrbot_data_path() / "plugin_data" / self.name
 
     @filter.command("todo-auth")
     async def auth(self, event: AstrMessageEvent):
@@ -26,9 +29,7 @@ class Main(Star):
 
         authority = f"https://login.microsoftonline.com/{tenant_id}"
 
-        cache = self._load_cache()
-
-        app = msal.PublicClientApplication(client_id=client_id, authority=authority, token_cache=cache)
+        app = msal.PublicClientApplication(client_id=client_id, authority=authority, token_cache=self.access_token_cache)
 
         result = None
         accounts = app.get_accounts()
@@ -48,7 +49,7 @@ class Main(Star):
         if result and "access_token" in result:
             yield event.plain_result("Successfully get access token")
             self.access_token = result["access_token"]
-            self._save_cache(cache)
+            self._save_cache(self.access_token_cache)
             return
 
         if result:
@@ -73,8 +74,13 @@ class Main(Star):
             return
 
     @filter.command("list-tasks")
-    async def list_tasks(self, event: AstrMessageEvent):
-        yield event.plain_result("Not implemented")
+    async def list_tasks(self, event: AstrMessageEvent, list_id: str):
+        result = await self.graph_request("GET", f"/me/todo/lists/{list_id}/tasks", 10)
+        if not result:
+            yield event.plain_result("No tasks found")
+
+        for item in result.get("value", []):
+            yield event.plain_result(f"{item['title']}")
 
     def _load_cache(self) -> msal.SerializableTokenCache:
         """Loads the MSAL token cache from the cache file.

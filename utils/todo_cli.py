@@ -3,11 +3,7 @@
 # import json
 #
 #
-# async def fetch_tasks(list_id: str, timeout: int) -> list[dict]:
-#     result = await graph_request("GET", f"/me/todo/lists/{list_id}/tasks", timeout)
-#     if not result:
-#         return []
-#     return result.get("value", [])
+
 #
 #
 # def build_and_save_list_cache(items: list[dict]) -> None:
